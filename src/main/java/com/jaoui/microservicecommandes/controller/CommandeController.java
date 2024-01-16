@@ -4,10 +4,15 @@ import com.jaoui.microservicecommandes.configuration.ApplicationPropertiesConfig
 import com.jaoui.microservicecommandes.dao.CommandeDao;
 import com.jaoui.microservicecommandes.exception.CommandeNotFoundException;
 import com.jaoui.microservicecommandes.model.Commande;
+import com.netflix.hystrix.contrib.javanica.annotation.HystrixCommand;
+import com.netflix.hystrix.contrib.javanica.annotation.HystrixProperty;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.cloud.client.circuitbreaker.EnableCircuitBreaker;
+import org.springframework.cloud.netflix.hystrix.dashboard.EnableHystrixDashboard;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
@@ -17,9 +22,12 @@ import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
 
+@EnableCircuitBreaker
+@Configuration
+@EnableHystrixDashboard
+@RestController
 @AllArgsConstructor
 @Slf4j
-@RestController
 public class CommandeController implements HealthIndicator {
     private final CommandeDao commandeDao;
     private final ApplicationPropertiesConfiguration appProperties;
@@ -45,15 +53,34 @@ public class CommandeController implements HealthIndicator {
                 .collect(Collectors.toList());
     }
 
+
+
     // Retrieve an order by its ID
     @GetMapping(value = "/commandes/{id}")
-    public Commande getOrderById(@PathVariable int id) {
+    public Commande getOrderById(@PathVariable int id) throws InterruptedException {
         log.info("Retrieving order with ID {}", id);
         return commandeDao.findById(id).orElseThrow(() -> {
             log.error("Order with ID {} not found", id);
             return new CommandeNotFoundException("Order with ID " + id + " does not exist");
         });
     }
+
+    @HystrixCommand(fallbackMethod = "HistrixbuildFallbackMessage",
+            commandProperties ={@HystrixProperty(name =
+                    "execution.isolation.thread.timeoutInMilliseconds", value = "1000")},
+            threadPoolKey = "messageThreadPool")
+    @GetMapping("/myMessage")
+    public String getMessage() throws InterruptedException {
+        log.info("Message from CommandeController.getMessage(): Begin To sleep for 3 scondes ");
+        Thread.sleep(3000);
+        return "Message from CommandeController.getMessage(): End from sleep for 3 secondes ";
+    }
+
+    private String HistrixbuildFallbackMessage() {
+        log.info("Message from HistrixbuildFallbackMessage() : Hystrix Fallback message ( after timeout : 1 second )");
+        return "Message from HistrixbuildFallbackMessage() : Hystrix Fallback message ( after timeout : 1 second )";
+    }
+
     //Create an order
     @PostMapping(value = "/commandes")
     public Commande createOrder(@RequestBody Commande order) {
